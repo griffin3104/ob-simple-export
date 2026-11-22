@@ -16,6 +16,9 @@ import { Resolved, transformMarkdown } from './transform';
 
 export class ExportError extends Error {}
 
+/** How many levels of note-in-note embeds are expanded before falling back to the title. */
+const MAX_EMBED_DEPTH = 5;
+
 export interface ExportResult {
 	/** Absolute path of the folder everything was written into. */
 	outRoot: string;
@@ -68,13 +71,8 @@ class Exporter {
 	}
 
 	async exportNote(file: TFile, outFile: string): Promise<void> {
-		const raw = await this.app.vault.read(file);
 		const outDir = path.dirname(outFile);
-
-		const text = transformMarkdown(stripFrontmatter(raw), {
-			stripWikilinks: this.settings.stripWikilinks,
-			resolve: (target, kind) => this.resolve(target, kind, file, outDir),
-		});
+		const text = (await this.render(file, outDir, [file.path])) ?? '';
 
 		await fs.promises.mkdir(outDir, { recursive: true });
 		await fs.promises.writeFile(outFile, text, 'utf8');
@@ -83,11 +81,63 @@ class Exporter {
 		await this.flushCopies();
 	}
 
+	/**
+	 * Convert one note to plain Markdown. `stack` holds the notes currently being
+	 * expanded, which stops circular embeds. With `section`, only that heading or
+	 * block is returned (null if it does not exist).
+	 */
+	private async render(
+		file: TFile,
+		outDir: string,
+		stack: string[],
+		section?: string,
+	): Promise<string | null> {
+		const raw = await this.app.vault.read(file);
+		let body: string;
+		if (section) {
+			const part = this.extractSection(file, raw, section);
+			if (part === null) return null;
+			body = part;
+		} else {
+			body = stripFrontmatter(raw);
+		}
+
+		return transformMarkdown(body, {
+			stripWikilinks: this.settings.stripWikilinks,
+			resolve: (target, kind, sec) => this.resolve(target, kind, file, outDir, stack, sec),
+		});
+	}
+
+	/** Slice a heading section (`#Heading`) or a block (`^id`) out of the raw note text. */
+	private extractSection(file: TFile, raw: string, section: string): string | null {
+		const cache = this.app.metadataCache.getFileCache(file);
+		if (!cache) return null;
+
+		if (section.startsWith('^')) {
+			const block = cache.blocks?.[section.slice(1).toLowerCase()];
+			if (!block) return null;
+			return raw.slice(block.position.start.offset, block.position.end.offset);
+		}
+
+		const name = section.split('#').filter(Boolean).pop()?.trim().toLowerCase();
+		const headings = cache.headings ?? [];
+		const index = headings.findIndex((h) => h.heading.trim().toLowerCase() === name);
+		const heading = headings[index];
+		if (!heading) return null;
+
+		// The section runs until the next heading of the same or a higher level.
+		const next = headings.slice(index + 1).find((h) => h.level <= heading.level);
+		const end = next ? next.position.start.offset : raw.length;
+		return raw.slice(heading.position.start.offset, end);
+	}
+
 	private resolve(
 		target: string,
 		kind: 'wiki' | 'md',
 		source: TFile,
 		outDir: string,
+		stack: string[],
+		section?: string,
 	): Resolved {
 		const found = this.findFile(target, kind, source.path);
 		if (!found) {
@@ -95,7 +145,15 @@ class Exporter {
 			return { type: 'missing' };
 		}
 		if (found.extension === 'md') {
-			return { type: 'note', name: found.basename };
+			return {
+				type: 'note',
+				name: found.basename,
+				embed: async () => {
+					if (stack.includes(found.path) || stack.length > MAX_EMBED_DEPTH) return null;
+					const body = await this.render(found, outDir, [...stack, found.path], section);
+					return body === null ? null : body.trim();
+				},
+			};
 		}
 		const dest = this.attachmentDest(found);
 		const relPath = path.relative(outDir, dest).split(path.sep).join('/');

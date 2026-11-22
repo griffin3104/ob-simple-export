@@ -43,10 +43,11 @@ Single note exports put the note in the output folder and its images in `<output
 | `![[image.png]]`, `![[image.png\|300]]` | `![](attachments/image.png)` |
 | `![alt](../img/a.png)` (relative image link) | `![alt](attachments/a.png)` |
 | `![[file.pdf]]` | `[file.pdf](attachments/file.pdf)` |
-| `![[Another note]]` (note embed) | `Another note` (title only) |
+| `![[Another note]]` (note embed) | the content of that note, inlined (its frontmatter is removed too) |
+| `![[Another note#Heading]]`, `![[Another note#^block-id]]` | only that section or block |
 | `[[Note]]`, `[[Note\|alias]]` | `Note`, `alias` (can be turned off in settings) |
 
-Code blocks and inline code are left untouched. Files with the same name from different folders are renamed (`image-1.png`) instead of overwritten. Embedded files that cannot be found are left as they were and listed in the developer console.
+Embedded notes are expanded recursively (up to 5 levels). A circular embed, or a heading or block that cannot be found, falls back to the note title. Code blocks and inline code are left untouched. Files with the same name from different folders are renamed (`image-1.png`) instead of overwritten. Embedded files that cannot be found are left as they were and listed in the developer console.
 
 ## Settings
 
