@@ -1,0 +1,10 @@
+{
+	"id": "ob-simple-export",
+	"name": "Simple Export",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.7",
+	"description": "Export notes or whole folders as plain Markdown without YAML frontmatter, copying embedded images alongside.",
+	"author": "griffin3104",
+	"authorUrl": "https://github.com/griffin3104",
+	"isDesktopOnly": true
+}
